@@ -1,0 +1,8 @@
+Daten binär speichern
+Garbage collector
+write lease periodicity
+impliment NAK für invalide anfragen
+implement DHCPDECLINE
+implement DHCPINFORM
+add hostname in leases
+add file plugin

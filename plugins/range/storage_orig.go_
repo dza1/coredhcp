@@ -1,0 +1,174 @@
+// Copyright 2018-present the CoreDHCP Authors. All rights reserved
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the root directory of this source tree.
+
+package rangeplugin_orig
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"strings"
+	"time"
+)
+
+// loadRecords loads the DHCPv6/v4 Records global map with records stored on
+// the specified file. The records have to be one per line, a mac address and an
+// IP address.
+func loadRecords(r io.Reader) (map[string]*Record, error) {
+	sc := bufio.NewScanner(r)
+	records := make(map[string]*Record)
+	for sc.Scan() {
+		line := sc.Text()
+		if len(line) == 0 {
+			continue
+		}
+		tokens := strings.Fields(line)
+		if len(tokens) != 3 {
+			return nil, fmt.Errorf("malformed line, want 3 fields, got %d: %s", len(tokens), line)
+		}
+		hwaddr, err := net.ParseMAC(tokens[0])
+		if err != nil {
+			return nil, fmt.Errorf("malformed hardware address: %s", tokens[0])
+		}
+		ipaddr := net.ParseIP(tokens[1])
+		if ipaddr.To4() == nil {
+			return nil, fmt.Errorf("expected an IPv4 address, got: %v", ipaddr)
+		}
+		expires, err := time.Parse(time.RFC3339, tokens[2])
+		if err != nil {
+			return nil, fmt.Errorf("expected time of exipry in RFC3339 format, got: %v", tokens[2])
+		}
+
+		if expires.After(time.Now()) {
+			records[hwaddr.String()] = &Record{IP: ipaddr, expires: expires}
+		}
+	}
+	return records, nil
+}
+
+func loadRecordsFromFile(filename string) (map[string]*Record, error) {
+	reader, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0640)
+	defer func() {
+		if err := reader.Close(); err != nil {
+			log.Warningf("Failed to close file %s: %v", filename, err)
+		}
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("cannot open lease file %s: %w", filename, err)
+	}
+	return loadRecords(reader)
+}
+
+// saveIPAddress writes out a lease to storage
+func (p *PluginState) saveIPAddress(mac net.HardwareAddr, record *Record) error {
+	_, err := p.leasefile.WriteString(mac.String() + " " + record.IP.String() + " " + record.expires.Format(time.RFC3339) + "\n")
+	if err != nil {
+		return err
+	}
+	err = p.leasefile.Sync()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// saveIPAddress writes out a lease to storage
+func (p *PluginState) writeLeaseFile(filename string) error {
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Warningf("Failed to open file %s: %v", filename, err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Warningf("Failed to close file %s: %v", filename, err)
+		}
+	}()
+	for key, v := range p.Recordsv4 {
+		_, err := file.WriteString(key + " " + v.IP.String() + " " + v.expires.Format(time.RFC3339) + "\n")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// func (p *PluginState) writeLeaseFileBin() error {
+// 	file, err := os.OpenFile(leaseBin, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer file.Close()
+// 	log.Info("Write lease.bin file")
+// 	err = gob.NewEncoder(file).Encode(p.Recordsv4)
+// 	return err
+// }
+
+// func (p *PluginState) readLeaseFile(keymap interface{}) error {
+// 	file, err := os.OpenFile(leaseBin, os.O_RDWR|os.O_CREATE, 0644)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer file.Close()
+// 	err = gob.NewDecoder(file).Decode(keymap)
+// 	return err
+// }
+
+// registerBackingFile installs a file as the backing store for leases
+func (p *PluginState) registerBackingFile(filename string) error {
+	if p.leasefile != nil {
+		// This is TODO; swapping the file out is easy
+		// but maintaining consistency with the in-memory state isn't
+		return errors.New("cannot swap out a lease storage file while running")
+	}
+	// We never close this, but that's ok because plugins are never stopped/unregistered
+	newLeasefile, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open lease file %s: %w", filename, err)
+	}
+	p.leasefile = newLeasefile
+	return nil
+}
+
+func (p *PluginState) initGarbColl(keymap *map[string]*Record) {
+	ticker := time.NewTicker(time.Duration(5) * time.Second)
+	go func() {
+		for range ticker.C {
+			log.Debug("garbage collector")
+			p.Lock()
+			err := p.cleanupRecord(keymap)
+			p.Unlock()
+			if err != nil {
+				log.Errorf("Garbage collector error: %v", err.Error())
+
+			}
+		}
+	}()
+}
+
+func (p *PluginState) cleanupRecord(keymap *map[string]*Record) error {
+	var del bool
+	del = false
+	for key, v := range *keymap {
+		if v.expires.Before(time.Now()) {
+			err := p.allocator.Free(net.IPNet{IP: v.IP})
+			if err != nil {
+				return fmt.Errorf("Could not free IP %s: %v", v.IP, err.Error())
+			}
+			del = true
+			log.Infof("Delete: %s", v.IP)
+			delete(*keymap, key)
+		}
+
+	}
+	if del {
+		err := p.writeLeaseFile(p.filename)
+		if err != nil {
+			return fmt.Errorf("Could not write the leasfile %s: %v", p.filename, err.Error())
+		}
+	}
+	return nil
+}
