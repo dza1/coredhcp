@@ -55,6 +55,7 @@ func SetupStorage(filename string, LeaseTime time.Duration, ipRangeStart net.IP,
 	}
 
 	s.initGarbColl(&s.Recordsv4, 5)
+
 	return s, nil
 
 }
@@ -62,7 +63,7 @@ func (s *Storage) Update(HWAddr net.HardwareAddr, reqIP net.IP, MsgTyp dhcpv4.Me
 	s.Lock()
 	defer s.Unlock()
 	record, ok := s.Recordsv4[HWAddr.String()]
-	if !ok {
+	if !ok { //create a new File
 		if MsgTyp == dhcpv4.MessageTypeRequest {
 			//If an IP address is requested, that we didn't offer, we answer with a NAK
 			return nil, fmt.Errorf("HWAddr not found in storage: %s", HWAddr.String())
@@ -73,6 +74,7 @@ func (s *Storage) Update(HWAddr net.HardwareAddr, reqIP net.IP, MsgTyp dhcpv4.Me
 		if err != nil {
 			return nil, fmt.Errorf("Could not allocate IP for MAC %s: %v", HWAddr.String(), err)
 		}
+
 		rec := Record{
 			IP:      ip.IP.To4(),
 			expires: time.Now().Add(s.LeaseTime),
@@ -254,6 +256,7 @@ func (s *Storage) initGarbColl(keymap *map[string]*Record, duration_s int) {
 	go func() {
 		for range ticker.C {
 			log.Debug("garbage collector")
+			//s.db.DeleteOld()
 			err := s.cleanupRecord(&s.Recordsv4)
 			if err != nil {
 				log.Errorf("Garbage collector error: %v", err.Error())

@@ -3,8 +3,8 @@ package device
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/nats-io/nats.go"
-	log "github.com/sirupsen/logrus"
 )
 
 type NATSController struct {
@@ -37,10 +37,10 @@ func (controller *NATSController) Subscribe() error {
 	if err != nil {
 		return fmt.Errorf("subscribe %s: %w", FindByIDTopic, err)
 	}
-	_, err = controller.nc.Subscribe(FindByFeederTopic, controller.handleFindByFeeder)
-	if err != nil {
-		return fmt.Errorf("subscribe %s: %w", FindByFeederTopic, err)
-	}
+	// _, err = controller.nc.Subscribe(FindByFeederTopic, controller.handleFindByFeeder)
+	// if err != nil {
+	// 	return fmt.Errorf("subscribe %s: %w", FindByFeederTopic, err)
+	// }
 	return nil
 }
 
@@ -138,21 +138,21 @@ func (controller *NATSController) handleFindByID(msg *nats.Msg) {
 	}
 }
 
-func (controller *NATSController) handleFindByFeeder(msg *nats.Msg) {
-	log.Debugf("Received message on subject %s", msg.Subject)
-	var device Device
-	err := json.Unmarshal(msg.Data, &device)
-	if err != nil {
-		log.Errorf("unmarshal msg data: %v", err)
-		return
-	}
-	found, err := controller.deviceService.FindByFeeder(device.Feeder)
-	if err != nil {
-		log.Errorf("find by feeder %s: %v", device.Feeder, err)
-		return
-	}
-	err = controller.nc.Publish(msg.Reply, found)
-	if err != nil {
-		log.Errorf("publish devices: %v", err)
-	}
-}
+// func (controller *NATSController) handleFindByFeeder(msg *nats.Msg) {
+// 	log.Debugf("Received message on subject %s", msg.Subject)
+// 	var device Device
+// 	err := json.Unmarshal(msg.Data, &device)
+// 	if err != nil {
+// 		log.Errorf("unmarshal msg data: %v", err)
+// 		return
+// 	}
+// 	found, err := controller.deviceService.FindByFeeder(device.Feeder)
+// 	if err != nil {
+// 		log.Errorf("find by feeder %s: %v", device.Feeder, err)
+// 		return
+// 	}
+// 	err = controller.nc.Publish(msg.Reply, found)
+// 	if err != nil {
+// 		log.Errorf("publish devices: %v", err)
+// 	}
+// }

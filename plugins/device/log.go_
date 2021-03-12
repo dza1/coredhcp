@@ -2,10 +2,10 @@ package device
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/natefinch/lumberjack.v2"
 	"io"
 	"os"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func InitLogger(loggingConfig LoggingConfig) error {

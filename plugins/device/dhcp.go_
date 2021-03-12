@@ -3,15 +3,15 @@ package device
 import (
 	"bytes"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/jinzhu/gorm"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"gorm.io/gorm"
 )
 
 type dhcpRecord struct {
